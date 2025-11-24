@@ -25,8 +25,6 @@ model Usuario {
   // Relações
   clientes       Cliente[]
   vendas         Venda[]
-
-  @@map("usuarios")
 }
 
 model Cliente {
@@ -51,9 +49,6 @@ model Cliente {
 
   usuario        Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   vendas         Venda[]
-
-  @@index([usuarioId], map: "clientes_usuarioId_fkey")
-  @@map("clientes")
 }
 
 model Produto {
@@ -69,8 +64,6 @@ model Produto {
 
   // Relações
   itensVenda   ItemVenda[]
-
-  @@map("produtos")
 }
 
 model Venda {
@@ -87,10 +80,6 @@ model Venda {
   cliente      Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   usuario      Usuario    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   itens        ItemVenda[]
-
-  @@index([clienteId], map: "vendas_clienteId_fkey")
-  @@index([usuarioId], map: "vendas_usuarioId_fkey")
-  @@map("vendas")
 }
 
 model ItemVenda {
@@ -102,8 +91,4 @@ model ItemVenda {
 
   venda      Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
   produto    Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
-  @@index([produtoId], map: "itens_venda_produtoId_fkey")
-  @@index([vendaId], map: "itens_venda_vendaId_fkey")
-  @@map("itens_venda")
 }
