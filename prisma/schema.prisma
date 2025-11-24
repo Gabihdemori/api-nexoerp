@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id             Int       @id @default(autoincrement())
+  nome           String
+  email          String    @unique
+  senha          String
+  telefone       String    @unique
+  cpf            String    @unique
+  perfil         String    @default("Operador")   // Admin ou Operador
+  status         String    @default("Ativo")      // Ativo ou Inativo
+  dataNascimento DateTime
+  endereco       String?
+  ultimoAcesso   DateTime?
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  // Relações
+  clientes       Cliente[]
+  vendas         Venda[]
+
+  @@map("usuarios")
+}
+
+model Cliente {
+  id             Int       @id @default(autoincrement())
+  nome           String
+  email          String    @unique
+  telefone       String    @unique
+  cpf            String?
+  cnpj           String?
+  dataNascimento DateTime?
+  cep            String?
+  rua            String?
+  numero         String?
+  complemento    String?
+  bairro         String?
+  cidade         String?
+  estado         String?
+  observacoes    String?
+  usuarioId      Int
+  criadoEm       DateTime  @default(now())
+  atualizadoEm   DateTime  @updatedAt
+
+  usuario        Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  vendas         Venda[]
+
+  @@index([usuarioId], map: "clientes_usuarioId_fkey")
+  @@map("clientes")
+}
+
+model Produto {
+  id           Int           @id @default(autoincrement())
+  nome         String
+  descricao    String?
+  preco        Float
+  estoque      Int?
+  tipo         String         @default("Produto")   // Produto ou Servico
+  status       String         @default("Ativo")     // Ativo ou Inativo
+  criadoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
+
+  // Relações
+  itensVenda   ItemVenda[]
+
+  @@map("produtos")
+}
+
+model Venda {
+  id           Int        @id @default(autoincrement())
+  clienteId    Int
+  usuarioId    Int
+  data         DateTime   @default(now())
+  total        Float?
+  status       String     @default("Pendente")
+  observacoes  String?    // Campo novo, opcional
+  criadoEm     DateTime   @default(now())
+  atualizadoEm DateTime   @updatedAt
+
+  cliente      Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  usuario      Usuario    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  itens        ItemVenda[]
+
+  @@index([clienteId], map: "vendas_clienteId_fkey")
+  @@index([usuarioId], map: "vendas_usuarioId_fkey")
+  @@map("vendas")
+}
+
+model ItemVenda {
+  id         Int     @id @default(autoincrement())
+  vendaId    Int
+  produtoId  Int
+  quantidade Int
+  precoUnit  Float
+
+  venda      Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produto    Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@index([produtoId], map: "itens_venda_produtoId_fkey")
+  @@index([vendaId], map: "itens_venda_vendaId_fkey")
+  @@map("itens_venda")
+}
