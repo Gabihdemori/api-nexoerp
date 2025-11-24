@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "dev": "npx nodemon server.js",
-    "postinstall": "prisma migrate dev --name init && prisma db seed && prisma generate"
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "Gabriela Helena",
