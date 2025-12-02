@@ -312,31 +312,34 @@ const findAll = async (req, res) => {
       page = 1, 
       limit = 10, 
       search,
-      tipo, // 'cpf' ou 'cnpj'
-      usuarioId 
+      tipo, 
+      cidade 
     } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Construir where clause dinamicamente
+
     const where = {};
     
     if (search) {
       where.OR = [
         { nome: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
-        { telefone: { contains: search } }
+        { telefone: { contains: search } },
+        { cpf: { contains: search } },
+        { cnpj: { contains: search } }
       ];
     }
     
-    if (tipo === 'cpf') {
+    // Filtro por tipo (PF ou PJ)
+    if (tipo === 'PF') {
       where.cpf = { not: null };
-    } else if (tipo === 'cnpj') {
+    } else if (tipo === 'PJ') {
       where.cnpj = { not: null };
     }
     
-    if (usuarioId && !isNaN(usuarioId)) {
-      where.usuarioId = parseInt(usuarioId);
+    // Filtro por cidade
+    if (cidade) {
+      where.cidade = { contains: cidade, mode: 'insensitive' };
     }
 
     const [clientes, total] = await Promise.all([
