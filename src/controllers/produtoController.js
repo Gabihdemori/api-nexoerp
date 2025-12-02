@@ -31,7 +31,6 @@ function validarProduto(dados, isUpdate = false) {
     if (!dados.preco && dados.preco !== 0) {
       errors.push('Preço é obrigatório');
     }
-    // REMOVIDO: Validação obrigatória do estoque - será validada condicionalmente depois
   }
 
   // Validações específicas dos campos
@@ -43,9 +42,12 @@ function validarProduto(dados, isUpdate = false) {
     errors.push('Preço deve ser um número não negativo');
   }
 
-  // VALIDAÇÃO MODIFICADA: Estoque deve ser número não negativo se fornecido
-  if (dados.estoque !== undefined && (isNaN(dados.estoque) || dados.estoque < 0)) {
-    errors.push('Estoque deve ser um número não negativo');
+  // VALIDAÇÃO MODIFICADA: Estoque é obrigatório apenas para produtos
+  // Para serviços, pode ser null ou undefined
+  if (dados.tipo === 'Produto' && dados.estoque !== undefined) {
+    if (isNaN(dados.estoque) || dados.estoque < 0) {
+      errors.push('Estoque deve ser um número não negativo');
+    }
   }
 
   if (dados.descricao && dados.descricao.length > 500) {
@@ -83,11 +85,24 @@ const create = async (req, res) => {
 
     // VALIDAÇÃO CONDICIONAL: Estoque obrigatório apenas para produtos
     const tipoFinal = tipo || 'Produto';
-    if (tipoFinal === 'Produto' && (estoque === undefined || estoque === null)) {
-      return res.status(400).json({ 
-        error: 'Dados inválidos',
-        detalhes: ['Estoque é obrigatório para produtos'] 
-      });
+    
+    if (tipoFinal === 'Produto') {
+      // Para produtos, estoque é obrigatório
+      if (estoque === undefined || estoque === null || estoque === '') {
+        return res.status(400).json({ 
+          error: 'Dados inválidos',
+          detalhes: ['Estoque é obrigatório para produtos'] 
+        });
+      }
+      
+      // Verificar se estoque é um número válido
+      const estoqueNum = parseInt(estoque);
+      if (isNaN(estoqueNum) || estoqueNum < 0) {
+        return res.status(400).json({ 
+          error: 'Dados inválidos',
+          detalhes: ['Estoque deve ser um número não negativo'] 
+        });
+      }
     }
 
     // Verificar se produto/serviço com mesmo nome já existe
@@ -109,9 +124,15 @@ const create = async (req, res) => {
       preco: parseFloat(preco),
       tipo: tipoFinal,
       status: status || 'Ativo',
-      // Serviços sempre têm estoque 0, produtos usam o estoque fornecido
-      estoque: tipoFinal === 'Servico' ? 0 : parseInt(estoque)
     };
+
+    // MODIFICAÇÃO: Estoque apenas para produtos, null para serviços
+    if (tipoFinal === 'Produto') {
+      dadosCriacao.estoque = parseInt(estoque);
+    } else {
+      // Serviços não têm estoque (pode ser null ou 0)
+      dadosCriacao.estoque = null;
+    }
 
     // Criar item
     const item = await prisma.produto.create({
@@ -155,7 +176,6 @@ const create = async (req, res) => {
 };
 
 // Listar todos os produtos/serviços com paginação e filtros
-// Listar todos os produtos/serviços com paginação e filtros
 const findAll = async (req, res) => {
   try {
     const { 
@@ -195,10 +215,16 @@ const findAll = async (req, res) => {
       if (maxPreco) where.preco.lte = parseFloat(maxPreco);
     }
     
+    // MODIFICAÇÃO: Para estoqueMinimo, apenas considerar produtos (não serviços)
     if (estoqueMinimo) {
-      where.estoque = {
-        gte: parseInt(estoqueMinimo)
-      };
+      where.AND = [
+        { tipo: 'Produto' },
+        {
+          estoque: {
+            gte: parseInt(estoqueMinimo)
+          }
+        }
+      ];
     }
 
     const [itens, total, totalServicos] = await Promise.all([
@@ -223,7 +249,7 @@ const findAll = async (req, res) => {
       })
     ]);
 
-    // CALCULAR ESTATÍSTICAS PARA PRODUTOS
+    // CALCULAR ESTATÍSTICAS APENAS PARA PRODUTOS (não incluir serviços)
     const whereParaEstatisticas = { ...where, tipo: 'Produto' };
     
     const [estatisticas, valorTotalEstoque] = await Promise.all([
@@ -241,7 +267,7 @@ const findAll = async (req, res) => {
         }
       }).then(produtos => {
         return produtos.reduce((total, produto) => {
-          return total + (produto.preco * produto.estoque);
+          return total + (produto.preco * (produto.estoque || 0));
         }, 0);
       })
     ]);
@@ -251,7 +277,9 @@ const findAll = async (req, res) => {
       ...item,
       criadoEm: formatarData(item.criadoEm),
       atualizadoEm: formatarData(item.atualizadoEm),
-      totalVendas: item._count.itensVenda
+      totalVendas: item._count.itensVenda,
+      // Mostrar estoque apenas para produtos
+      estoque: item.tipo === 'Produto' ? item.estoque : null
     }));
 
     res.json({
@@ -279,6 +307,7 @@ const findAll = async (req, res) => {
     });
   }
 };
+
 // Buscar produto/serviço por ID
 const findOne = async (req, res) => {
   const id = parseInt(req.params.id);
@@ -338,7 +367,9 @@ const findOne = async (req, res) => {
           ...itemVenda.venda,
           data: formatarData(itemVenda.venda.data)
         }
-      }))
+      })),
+      // Mostrar estoque apenas para produtos
+      estoque: item.tipo === 'Produto' ? item.estoque : null
     };
 
     res.json(itemFormatado);
@@ -381,15 +412,26 @@ const update = async (req, res) => {
       return res.status(404).json({ error: 'Item não encontrado' });
     }
 
-    // VALIDAÇÃO: Se mudando para Produto e estoque não fornecido
+    // Determinar o tipo final
     const novoTipo = dadosAtualizacao.tipo || itemExistente.tipo;
-    if (novoTipo === 'Produto' && 
-        dadosAtualizacao.estoque === undefined && 
-        itemExistente.estoque === 0) {
-      return res.status(400).json({ 
-        error: 'Dados inválidos',
-        detalhes: ['Estoque é obrigatório ao alterar serviço para produto'] 
-      });
+    
+    // VALIDAÇÃO: Se mudando de Serviço para Produto, estoque é obrigatório
+    if (itemExistente.tipo === 'Servico' && novoTipo === 'Produto') {
+      if (dadosAtualizacao.estoque === undefined || dadosAtualizacao.estoque === null) {
+        return res.status(400).json({ 
+          error: 'Dados inválidos',
+          detalhes: ['Estoque é obrigatório ao alterar serviço para produto'] 
+        });
+      }
+      
+      // Verificar se estoque é um número válido
+      const estoqueNum = parseInt(dadosAtualizacao.estoque);
+      if (isNaN(estoqueNum) || estoqueNum < 0) {
+        return res.status(400).json({ 
+          error: 'Dados inválidos',
+          detalhes: ['Estoque deve ser um número não negativo'] 
+        });
+      }
     }
 
     // Verificar duplicata de nome
@@ -422,11 +464,16 @@ const update = async (req, res) => {
       dadosAtualizacao.preco = parseFloat(dadosAtualizacao.preco);
     }
 
-    // MODIFICAÇÃO: Se for serviço, estoque deve ser 0
+    // MODIFICAÇÃO: Gerenciar estoque baseado no tipo
     if (dadosAtualizacao.tipo === 'Servico') {
-      dadosAtualizacao.estoque = 0;
-    } else if (dadosAtualizacao.estoque !== undefined) {
-      dadosAtualizacao.estoque = parseInt(dadosAtualizacao.estoque);
+      // Se for serviço, estoque deve ser null
+      dadosAtualizacao.estoque = null;
+    } else if (dadosAtualizacao.tipo === 'Produto') {
+      // Se for produto e estoque foi fornecido, converter para inteiro
+      if (dadosAtualizacao.estoque !== undefined && dadosAtualizacao.estoque !== null) {
+        dadosAtualizacao.estoque = parseInt(dadosAtualizacao.estoque);
+      }
+      // Se não foi fornecido e já é um produto, manter o estoque atual
     }
 
     // Atualizar item
@@ -446,7 +493,9 @@ const update = async (req, res) => {
       ...item,
       criadoEm: formatarData(item.criadoEm),
       atualizadoEm: formatarData(item.atualizadoEm),
-      totalVendas: item._count.itensVenda
+      totalVendas: item._count.itensVenda,
+      // Mostrar estoque apenas para produtos
+      estoque: item.tipo === 'Produto' ? item.estoque : null
     };
 
     res.json({
@@ -534,11 +583,16 @@ const findLowStock = async (req, res) => {
 
     const produtos = await prisma.produto.findMany({
       where: {
-        estoque: {
-          lte: parseInt(limite)
-        },
-        tipo: 'Produto', // Apenas produtos
-        status: 'Ativo'
+        AND: [
+          { tipo: 'Produto' },
+          { status: 'Ativo' },
+          {
+            OR: [
+              { estoque: { lte: parseInt(limite) } },
+              { estoque: null } // Incluir produtos sem estoque definido
+            ]
+          }
+        ]
       },
       include: {
         _count: {

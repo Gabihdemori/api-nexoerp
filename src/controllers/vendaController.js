@@ -54,10 +54,12 @@ async function verificarExistenciaRegistros(clienteId, usuarioId, itens = []) {
     const produto = await prisma.produto.findUnique({
       where: { id: parseInt(item.produtoId) }
     });
+    
     if (!produto) {
       errors.push(`Produto com ID ${item.produtoId} não encontrado`);
-    } else if (item.quantidade > produto.estoque) {
-      errors.push(`Estoque insuficiente para o produto ${produto.nome}. Disponível: ${produto.estoque}, Solicitado: ${item.quantidade}`);
+    } else if (produto.tipo === 'Produto' && item.quantidade > (produto.estoque || 0)) {
+      // Apenas valida estoque para produtos, e considera 0 se estoque for null
+      errors.push(`Estoque insuficiente para o produto ${produto.nome}. Disponível: ${produto.estoque || 0}, Solicitado: ${item.quantidade}`);
     }
   }
 
@@ -160,7 +162,8 @@ const create = async (req, res) => {
                 select: {
                   id: true,
                   nome: true,
-                  preco: true
+                  preco: true,
+                  tipo: true // Incluímos o tipo para saber se é Produto ou Serviço
                 }
               }
             }
@@ -168,17 +171,26 @@ const create = async (req, res) => {
         }
       });
 
-      // Atualizar estoque se a venda for Concluida
+      // Atualizar estoque se a venda for Concluida e apenas para produtos (não serviços)
       if (novaVenda.status === 'Concluida') {
         for (const item of itens) {
-          await tx.produto.update({
+          // Verificar se é um produto (tipo === 'Produto') e se tem estoque (não é null)
+          const produto = await tx.produto.findUnique({
             where: { id: parseInt(item.produtoId) },
-            data: {
-              estoque: {
-                decrement: parseInt(item.quantidade)
-              }
-            }
+            select: { tipo: true, estoque: true }
           });
+          
+          // Só atualiza estoque se for um Produto e estoque não for null
+          if (produto && produto.tipo === 'Produto' && produto.estoque !== null) {
+            await tx.produto.update({
+              where: { id: parseInt(item.produtoId) },
+              data: {
+                estoque: {
+                  decrement: parseInt(item.quantidade)
+                }
+              }
+            });
+          }
         }
       }
 
@@ -271,7 +283,8 @@ const findAll = async (req, res) => {
               produto: {
                 select: {
                   id: true,
-                  nome: true
+                  nome: true,
+                  tipo: true
                 }
               }
             }
@@ -368,17 +381,15 @@ const findOne = async (req, res) => {
 };
 
 // Atualizar venda
-// Atualizar venda
 const update = async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
 
   try {
-    // CORREÇÃO: Extrair observacoes corretamente do req.body
     const { data, status, observacoes, ...rest } = req.body;
     
-    console.log('Dados recebidos para atualização:', req.body); // Para debug
-    console.log('Observações extraídas:', observacoes); // Para debug
+    console.log('Dados recebidos para atualização:', req.body);
+    console.log('Observações extraídas:', observacoes);
     
     // Validar status se estiver sendo atualizado
     if (status && !['Concluida', 'Pendente', 'Cancelada'].includes(status)) {
@@ -392,24 +403,35 @@ const update = async (req, res) => {
     // Buscar venda atual para verificar mudanças de status
     const vendaAtual = await prisma.venda.findUnique({
       where: { id },
-      include: { itens: true }
+      include: { 
+        itens: {
+          include: {
+            produto: {
+              select: {
+                id: true,
+                tipo: true
+              }
+            }
+          }
+        } 
+      }
     });
 
     if (!vendaAtual) {
       return res.status(404).json({ error: 'Venda não encontrada' });
     }
 
-    // CORREÇÃO: Incluir observacoes no objeto de atualização
+    // Incluir observacoes no objeto de atualização
     const dadosAtualizacao = {
       ...rest,
-      ...(observacoes !== undefined && { observacoes }) // Adiciona observacoes se existir
+      ...(observacoes !== undefined && { observacoes })
     };
 
     // Apenas adicionar campos se foram fornecidos
     if (data) dadosAtualizacao.data = dataFormatada;
     if (status) dadosAtualizacao.status = status;
 
-    console.log('Dados que serão enviados para atualização:', dadosAtualizacao); // Para debug
+    console.log('Dados que serão enviados para atualização:', dadosAtualizacao);
 
     const venda = await prisma.$transaction(async (tx) => {
       // Atualizar venda
@@ -432,31 +454,35 @@ const update = async (req, res) => {
         }
       });
 
-      // Gerenciar estoque baseado na mudança de status
+      // Gerenciar estoque baseado na mudança de status - APENAS para Produtos com estoque não null
       if (vendaAtual.status !== status) {
         if (status === 'Concluida') {
-          // Diminuir estoque
+          // Diminuir estoque APENAS para produtos
           for (const item of vendaAtual.itens) {
-            await tx.produto.update({
-              where: { id: item.produtoId },
-              data: {
-                estoque: {
-                  decrement: item.quantidade
+            if (item.produto.tipo === 'Produto') {
+              await tx.produto.update({
+                where: { id: item.produtoId },
+                data: {
+                  estoque: {
+                    decrement: item.quantidade
+                  }
                 }
-              }
-            });
+              });
+            }
           }
         } else if (vendaAtual.status === 'Concluida' && status !== 'Concluida') {
-          // Reverter estoque
+          // Reverter estoque APENAS para produtos
           for (const item of vendaAtual.itens) {
-            await tx.produto.update({
-              where: { id: item.produtoId },
-              data: {
-                estoque: {
-                  increment: item.quantidade
+            if (item.produto.tipo === 'Produto') {
+              await tx.produto.update({
+                where: { id: item.produtoId },
+                data: {
+                  estoque: {
+                    increment: item.quantidade
+                  }
                 }
-              }
-            });
+              });
+            }
           }
         }
       }
@@ -478,7 +504,7 @@ const update = async (req, res) => {
       detalhes: err.message
     });
   }
-};;
+};
 
 // Deletar venda
 const remove = async (req, res) => {
@@ -489,7 +515,18 @@ const remove = async (req, res) => {
     // Buscar venda para verificar status e itens
     const venda = await prisma.venda.findUnique({
       where: { id },
-      include: { itens: true }
+      include: { 
+        itens: {
+          include: {
+            produto: {
+              select: {
+                id: true,
+                tipo: true
+              }
+            }
+          }
+        } 
+      }
     });
 
     if (!venda) {
@@ -497,17 +534,19 @@ const remove = async (req, res) => {
     }
 
     await prisma.$transaction(async (tx) => {
-      // Reverter estoque se a venda estava Concluida
+      // Reverter estoque APENAS se a venda estava Concluida e APENAS para produtos
       if (venda.status === 'Concluida') {
         for (const item of venda.itens) {
-          await tx.produto.update({
-            where: { id: item.produtoId },
-            data: {
-              estoque: {
-                increment: item.quantidade
+          if (item.produto.tipo === 'Produto') {
+            await tx.produto.update({
+              where: { id: item.produtoId },
+              data: {
+                estoque: {
+                  increment: item.quantidade
+                }
               }
-            }
-          });
+            });
+          }
         }
       }
 
@@ -545,38 +584,53 @@ const updateStatus = async (req, res) => {
     const venda = await prisma.$transaction(async (tx) => {
       const vendaAtual = await tx.venda.findUnique({
         where: { id },
-        include: { itens: true }
+        include: { 
+          itens: {
+            include: {
+              produto: {
+                select: {
+                  id: true,
+                  tipo: true
+                }
+              }
+            }
+          } 
+        }
       });
 
       if (!vendaAtual) {
         throw new Error('Venda não encontrada');
       }
 
-      // Gerenciar estoque baseado na mudança de status
+      // Gerenciar estoque baseado na mudança de status - APENAS para Produtos
       if (vendaAtual.status !== status) {
         if (status === 'Concluida') {
-          // Diminuir estoque
+          // Diminuir estoque APENAS para produtos
           for (const item of vendaAtual.itens) {
-            await tx.produto.update({
-              where: { id: item.produtoId },
-              data: {
-                estoque: {
-                  decrement: item.quantidade
+            if (item.produto.tipo === 'Produto') {
+              await tx.produto.update({
+                where: { id: item.produtoId },
+                data: {
+                  estoque: {
+                    decrement: item.quantidade
+                  }
                 }
-              }
-            });
+              });
+            }
           }
         } else if (vendaAtual.status === 'Concluida' && status !== 'Concluida') {
-          // Reverter estoque
+          // Reverter estoque APENAS para produtos
           for (const item of vendaAtual.itens) {
-            await tx.produto.update({
-              where: { id: item.produtoId },
-              data: {
-                estoque: {
-                  increment: item.quantidade
+            if (item.produto.tipo === 'Produto') {
+              await tx.produto.update({
+                where: { id: item.produtoId },
+                data: {
+                  estoque: {
+                    increment: item.quantidade
+                  }
                 }
-              }
-            });
+              });
+            }
           }
         }
       }
@@ -597,7 +651,8 @@ const updateStatus = async (req, res) => {
               produto: {
                 select: {
                   id: true,
-                  nome: true
+                  nome: true,
+                  tipo: true
                 }
               }
             }
