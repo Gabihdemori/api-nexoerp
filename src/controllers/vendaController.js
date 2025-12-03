@@ -1,74 +1,50 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Função para formatar datas no padrão dd/mm/aaaa HH:MM
-function formatarData(data) {
-  if (!data) return null;
-  const date = new Date(data);
-  
-  // Verifica se a data é válida
-  if (isNaN(date.getTime())) {
-    console.error('Data inválida para formatação:', data);
-    return 'Data inválida';
-  }
-  
-  const dia = date.getDate().toString().padStart(2, '0');
-  const mes = (date.getMonth() + 1).toString().padStart(2, '0');
-  const ano = date.getFullYear().toString(); // 4 dígitos
-  const horas = date.getHours().toString().padStart(2, '0');
-  const minutos = date.getMinutes().toString().padStart(2, '0');
-  
-  return `${dia}/${mes}/${ano} ${horas}:${minutos}`;
-}
 
-// Função para converter data do formato pt-BR para ISO - CORRIGIDA PARA TIMEZONE
-function converterDataPtBrParaISO(dataString) {
+function parseDataBrasileira(dataString) {
   if (!dataString || dataString.trim() === '') {
-    console.log('Nenhuma data fornecida, usando data atual (BRT)');
-    // Retorna data atual no fuso horário de Brasília
-    const agora = new Date();
-    const offsetBRT = -3 * 60; // Brasília é UTC-3
-    const dataLocal = new Date(agora.getTime() + (agora.getTimezoneOffset() - offsetBRT) * 60000);
-    return dataLocal;
+    console.log('Nenhuma data fornecida, usando data/hora atual');
+    return new Date();
   }
   
-  console.log('Convertendo data:', dataString);
-  
-  // Remover espaços extras
   dataString = dataString.trim();
   
-  // Verificar se já é um objeto Date
+  // Se já for um objeto Date, retorna ele mesmo
   if (dataString instanceof Date) {
     return dataString;
   }
   
-  // Verificar se já está em formato ISO
+  // Se já está em formato ISO, converte diretamente
   if (/^\d{4}-\d{2}-\d{2}/.test(dataString)) {
     const date = new Date(dataString);
     if (!isNaN(date.getTime())) {
-      console.log('Data já está em formato ISO:', date.toISOString());
       return date;
     }
   }
   
-  // Padrão para dd/mm/aaaa ou dd/mm/aaaa HH:mm
-  const padraoComHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/;
-  const padraoSemHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+  // Regex para formatos brasileiros
+  const formatoComHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/;
+  const formatoSemHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
   
   let dia, mes, ano, horas = '00', minutos = '00';
   
-  const matchComHoras = dataString.match(padraoComHoras);
-  const matchSemHoras = dataString.match(padraoSemHoras);
+  const matchComHoras = dataString.match(formatoComHoras);
+  const matchSemHoras = dataString.match(formatoSemHoras);
   
   if (matchComHoras) {
     [, dia, mes, ano, horas = '00', minutos = '00'] = matchComHoras;
   } else if (matchSemHoras) {
     [, dia, mes, ano] = matchSemHoras;
   } else {
-    console.warn('Formato de data não reconhecido, usando data atual (BRT):', dataString);
-    const agora = new Date();
-    const offsetBRT = -3 * 60;
-    return new Date(agora.getTime() + (agora.getTimezoneOffset() - offsetBRT) * 60000);
+    // Tenta converter como string de data padrão
+    const date = new Date(dataString);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+    
+    console.warn('Formato de data não reconhecido, usando data atual:', dataString);
+    return new Date();
   }
   
   // Garantir 2 dígitos
@@ -76,86 +52,112 @@ function converterDataPtBrParaISO(dataString) {
   mes = mes.padStart(2, '0');
   horas = horas.padStart(2, '0');
   
-  const dataUTC = new Date(Date.UTC(
-    parseInt(ano),
-    parseInt(mes) - 1, // Mês começa em 0
-    parseInt(dia),
-    parseInt(horas),
-    parseInt(minutos),
-    0
-  ));
+  // IMPORTANTE: Criar data no fuso horário local, mas sem ajuste de timezone
+  // Isso garante que dd/mm/aaaa será salvo como dd/mm/aaaa
+  const date = new Date(ano, mes - 1, dia, horas, minutos, 0, 0);
   
-  console.log(`Data convertida (UTC): ${dataUTC.toISOString()}`);
-  console.log(`Data local (BRT): ${dataUTC.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`);
-  
-  return dataUTC;
+  console.log(`Data parseada: ${dataString} -> ${date.toISOString()}`);
+  return date;
 }
 
-// Função para formatar datas no padrão dd/mm/aaaa HH:MM - CORRIGIDA PARA TIMEZONE
-function formatarData(data) {
+/**
+ * Formata uma data para o padrão brasileiro (dd/mm/aaaa HH:MM)
+ * Usa os métodos locais para evitar problemas de timezone
+ */
+function formatarDataParaExibicao(data) {
   if (!data) return null;
   
   const date = new Date(data);
   
-  // Verifica se a data é válida
   if (isNaN(date.getTime())) {
     console.error('Data inválida para formatação:', data);
     return 'Data inválida';
   }
   
-  // Converter para fuso horário de Brasília para exibição
-  const dataBRT = new Date(date.getTime());
-  
-  const dia = dataBRT.getUTCDate().toString().padStart(2, '0'); // Usar getUTCDate
-  const mes = (dataBRT.getUTCMonth() + 1).toString().padStart(2, '0'); // Usar getUTCMonth
-  const ano = dataBRT.getUTCFullYear().toString(); // 4 dígitos
-  const horas = dataBRT.getUTCHours().toString().padStart(2, '0'); // Usar getUTCHours
-  const minutos = dataBRT.getUTCMinutes().toString().padStart(2, '0'); // Usar getUTCMinutes
+  // Usar métodos locais para manter a data como foi informada
+  const dia = date.getDate().toString().padStart(2, '0');
+  const mes = (date.getMonth() + 1).toString().padStart(2, '0');
+  const ano = date.getFullYear().toString();
+  const horas = date.getHours().toString().padStart(2, '0');
+  const minutos = date.getMinutes().toString().padStart(2, '0');
   
   return `${dia}/${mes}/${ano} ${horas}:${minutos}`;
 }
 
-// Função para verificar existência de registros
+/**
+ * Verifica se dois objetos Date representam o mesmo dia (ignorando horas)
+ */
+function isMesmoDia(data1, data2) {
+  if (!data1 || !data2) return false;
+  
+  const d1 = new Date(data1);
+  const d2 = new Date(data2);
+  
+  return d1.getDate() === d2.getDate() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getFullYear() === d2.getFullYear();
+}
+
+// =============================================
+// FUNÇÕES DE VALIDAÇÃO
+// =============================================
+
 async function verificarExistenciaRegistros(clienteId, usuarioId, itens = []) {
   const errors = [];
 
-  // Verificar cliente
-  const cliente = await prisma.cliente.findUnique({
-    where: { id: parseInt(clienteId) }
-  });
-  if (!cliente) {
-    errors.push(`Cliente com ID ${clienteId} não encontrado`);
-  }
-
-  // Verificar usuário
-  const usuario = await prisma.usuario.findUnique({
-    where: { id: parseInt(usuarioId) }
-  });
-  if (!usuario) {
-    errors.push(`Usuário com ID ${usuarioId} não encontrado`);
-  }
-
-  // Verificar produtos
-  for (const item of itens) {
-    const produto = await prisma.produto.findUnique({
-      where: { id: parseInt(item.produtoId) }
+  try {
+    // Verificar cliente
+    const cliente = await prisma.cliente.findUnique({
+      where: { id: parseInt(clienteId) }
     });
-    
-    if (!produto) {
-      errors.push(`Produto com ID ${item.produtoId} não encontrado`);
-    } else if (produto.tipo === 'Produto' && item.quantidade > (produto.estoque || 0)) {
-      // Apenas valida estoque para produtos, e considera 0 se estoque for null
-      errors.push(`Estoque insuficiente para o produto ${produto.nome}. Disponível: ${produto.estoque || 0}, Solicitado: ${item.quantidade}`);
+    if (!cliente) {
+      errors.push(`Cliente com ID ${clienteId} não encontrado`);
     }
+
+    // Verificar usuário
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: parseInt(usuarioId) }
+    });
+    if (!usuario) {
+      errors.push(`Usuário com ID ${usuarioId} não encontrado`);
+    }
+
+    // Verificar produtos
+    for (const item of itens) {
+      const produto = await prisma.produto.findUnique({
+        where: { id: parseInt(item.produtoId) }
+      });
+      
+      if (!produto) {
+        errors.push(`Produto com ID ${item.produtoId} não encontrado`);
+      } else if (produto.tipo === 'Produto') {
+        const estoqueDisponivel = produto.estoque !== null ? produto.estoque : 0;
+        const quantidadeSolicitada = parseInt(item.quantidade) || 0;
+        
+        if (quantidadeSolicitada > estoqueDisponivel) {
+          errors.push(`Estoque insuficiente para o produto ${produto.nome}. Disponível: ${estoqueDisponivel}, Solicitado: ${quantidadeSolicitada}`);
+        }
+      }
+    }
+  } catch (error) {
+    errors.push(`Erro ao verificar registros: ${error.message}`);
   }
 
   return errors;
 }
 
-// Criar venda com itens
+// =============================================
+// CONTROLADORES DE VENDAS
+// =============================================
+
 const create = async (req, res) => {
   try {
     const { clienteId, usuarioId, data, status, itens, total, observacoes } = req.body;
+
+    console.log('=== INICIANDO CRIAÇÃO DE VENDA ===');
+    console.log('Data recebida:', data);
+    console.log('Cliente ID:', clienteId);
+    console.log('Itens:', itens);
 
     // Validações básicas
     if (!clienteId || !usuarioId) {
@@ -198,26 +200,30 @@ const create = async (req, res) => {
       });
     }
 
-    const dataFormatada = converterDataPtBrParaISO(data);
-    console.log('Data formatada para salvar no banco:', dataFormatada);
+    // Processar data - usar data fornecida ou data atual
+    const dataVenda = data ? parseDataBrasileira(data) : new Date();
+    console.log('Data que será salva:', dataVenda.toISOString());
+    console.log('Data formatada para exibição:', formatarDataParaExibicao(dataVenda));
 
-    // Calcular total se não fornecido
-    let totalCalculado = total;
-    if (!total || isNaN(total)) {
-      totalCalculado = itens.reduce((sum, item) => {
-        return sum + (parseInt(item.quantidade) * parseFloat(item.precoUnit));
+    // Calcular total
+    let totalCalculado = 0;
+    if (total && !isNaN(parseFloat(total))) {
+      totalCalculado = parseFloat(total);
+    } else {
+      totalCalculado = itens.reduce((soma, item) => {
+        return soma + (parseInt(item.quantidade) * parseFloat(item.precoUnit));
       }, 0);
     }
 
-    // Criar venda com itens em transação
+    // Criar venda em transação
     const venda = await prisma.$transaction(async (tx) => {
-      // Criar a venda
+      // 1. Criar a venda
       const novaVenda = await tx.venda.create({
         data: {
           clienteId: parseInt(clienteId),
           usuarioId: parseInt(usuarioId),
-          data: dataFormatada,
-          total: parseFloat(totalCalculado),
+          data: dataVenda,
+          total: totalCalculado,
           status: status || 'Pendente',
           observacoes: observacoes || null,
           itens: {
@@ -233,7 +239,9 @@ const create = async (req, res) => {
             select: {
               id: true,
               nome: true,
-              email: true
+              email: true,
+              cidade: true,
+              estado: true
             }
           },
           usuario: {
@@ -250,7 +258,8 @@ const create = async (req, res) => {
                   id: true,
                   nome: true,
                   preco: true,
-                  tipo: true
+                  tipo: true,
+                  estoque: true
                 }
               }
             }
@@ -258,17 +267,15 @@ const create = async (req, res) => {
         }
       });
 
-      // Atualizar estoque se a venda for Concluida e apenas para produtos (não serviços)
+      // 2. Atualizar estoque se a venda for Concluída
       if (novaVenda.status === 'Concluida') {
         for (const item of itens) {
-          // Verificar se é um produto (tipo === 'Produto') e se tem estoque (não é null)
           const produto = await tx.produto.findUnique({
             where: { id: parseInt(item.produtoId) },
-            select: { tipo: true, estoque: true }
+            select: { tipo: true }
           });
           
-          // Só atualiza estoque se for um Produto e estoque não for null
-          if (produto && produto.tipo === 'Produto' && produto.estoque !== null) {
+          if (produto && produto.tipo === 'Produto') {
             await tx.produto.update({
               where: { id: parseInt(item.produtoId) },
               data: {
@@ -284,43 +291,51 @@ const create = async (req, res) => {
       return novaVenda;
     });
 
-    // Formatar datas na resposta
-    const vendaFormatada = {
-      ...venda,
-      data: formatarData(venda.data),
-      itens: venda.itens.map(item => ({
-        ...item,
-        produto: item.produto ? {
-          ...item.produto,
-          criadoEm: formatarData(item.produto.criadoEm),
-          atualizadoEm: formatarData(item.produto.atualizadoEm)
-        } : null
-      }))
+    // Formatar resposta
+    const resposta = {
+      message: 'Venda criada com sucesso',
+      venda: {
+        ...venda,
+        data: formatarDataParaExibicao(venda.data),
+        itens: venda.itens.map(item => ({
+          ...item,
+          produto: item.produto ? {
+            ...item.produto,
+            criadoEm: formatarDataParaExibicao(item.produto.criadoEm),
+            atualizadoEm: formatarDataParaExibicao(item.produto.atualizadoEm)
+          } : null
+        }))
+      }
     };
 
-    res.status(201).json({
-      message: 'Venda criada com sucesso',
-      venda: vendaFormatada
-    });
-  } catch (err) {
-    console.error('Erro ao criar venda:', err);
+    console.log('=== VENDA CRIADA COM SUCESSO ===');
+    res.status(201).json(resposta);
+
+  } catch (error) {
+    console.error('Erro ao criar venda:', error);
     
-    // Tratamento específico para erros do Prisma
-    if (err.code === 'P2003') {
+    // Tratamento de erros específicos do Prisma
+    if (error.code === 'P2003') {
       return res.status(400).json({ 
-        error: 'Erro de chave estrangeira',
-        detalhes: 'Cliente, usuário ou produto não encontrado. Verifique os IDs informados.'
+        error: 'Erro de referência',
+        detalhes: 'Cliente, usuário ou produto não encontrado. Verifique os IDs.'
       });
     }
     
-    res.status(400).json({ 
-      error: 'Erro ao criar venda', 
-      detalhes: err.message 
+    if (error.code === 'P2002') {
+      return res.status(400).json({ 
+        error: 'Erro de duplicidade',
+        detalhes: 'Já existe um registro com esses dados.'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Erro interno ao criar venda',
+      detalhes: error.message 
     });
   }
 };
 
-// Listar todas as vendas com filtros
 const findAll = async (req, res) => {
   try {
     const { 
@@ -335,26 +350,29 @@ const findAll = async (req, res) => {
 
     const where = {};
     
+    // Filtros
     if (clienteId && !isNaN(clienteId)) where.clienteId = parseInt(clienteId);
     if (usuarioId && !isNaN(usuarioId)) where.usuarioId = parseInt(usuarioId);
     if (status) where.status = status;
     
+    // Filtros de data
     if (dataInicio || dataFim) {
       where.data = {};
       if (dataInicio) {
-        const dataInicioConvertida = converterDataPtBrParaISO(dataInicio);
-        where.data.gte = dataInicioConvertida;
+        const inicio = parseDataBrasileira(dataInicio);
+        inicio.setHours(0, 0, 0, 0);
+        where.data.gte = inicio;
       }
       if (dataFim) {
-        const dataFimConvertida = converterDataPtBrParaISO(dataFim);
-        // Ajusta para o final do dia
-        dataFimConvertida.setHours(23, 59, 59, 999);
-        where.data.lte = dataFimConvertida;
+        const fim = parseDataBrasileira(dataFim);
+        fim.setHours(23, 59, 59, 999);
+        where.data.lte = fim;
       }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // Buscar vendas e total
     const [vendas, total] = await Promise.all([
       prisma.venda.findMany({
         where,
@@ -363,7 +381,8 @@ const findAll = async (req, res) => {
             select: {
               id: true,
               nome: true,
-              email: true
+              email: true,
+              cidade: true
             }
           },
           usuario: {
@@ -394,10 +413,15 @@ const findAll = async (req, res) => {
       prisma.venda.count({ where })
     ]);
 
-    // Formatar datas
+    // Formatar datas na resposta
     const vendasFormatadas = vendas.map(venda => ({
       ...venda,
-      data: formatarData(venda.data)
+      data: formatarDataParaExibicao(venda.data),
+      cliente: venda.cliente ? {
+        ...venda.cliente,
+        criadoEm: formatarDataParaExibicao(venda.cliente.criadoEm),
+        atualizadoEm: formatarDataParaExibicao(venda.cliente.atualizadoEm)
+      } : null
     }));
 
     res.json({
@@ -409,96 +433,116 @@ const findAll = async (req, res) => {
         totalPages: Math.ceil(total / parseInt(limit))
       }
     });
-  } catch (err) {
-    console.error('Erro ao buscar vendas:', err);
+
+  } catch (error) {
+    console.error('Erro ao buscar vendas:', error);
     res.status(500).json({ 
       error: 'Erro ao buscar vendas',
-      detalhes: err.message
+      detalhes: error.message
     });
   }
 };
 
-// Buscar venda por ID
 const findOne = async (req, res) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
-
   try {
+    const id = parseInt(req.params.id);
+    
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
     const venda = await prisma.venda.findUnique({
       where: { id },
       include: {
-        cliente: true,
-        usuario: {
+        cliente: {
           select: {
             id: true,
             nome: true,
             email: true,
-            perfil: true
+            telefone: true,
+            cidade: true,
+            estado: true
+          }
+        },
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            email: true
           }
         },
         itens: {
           include: {
-            produto: true
+            produto: {
+              select: {
+                id: true,
+                nome: true,
+                descricao: true,
+                preco: true,
+                tipo: true,
+                estoque: true
+              }
+            }
           }
         }
       }
     });
 
-    if (!venda) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (!venda) {
+      return res.status(404).json({ error: 'Venda não encontrada' });
+    }
 
     // Formatar datas
     const vendaFormatada = {
       ...venda,
-      data: formatarData(venda.data),
+      data: formatarDataParaExibicao(venda.data),
       cliente: venda.cliente ? {
         ...venda.cliente,
-        criadoEm: formatarData(venda.cliente.criadoEm),
-        atualizadoEm: formatarData(venda.cliente.atualizadoEm)
+        criadoEm: formatarDataParaExibicao(venda.cliente.criadoEm),
+        atualizadoEm: formatarDataParaExibicao(venda.cliente.atualizadoEm)
       } : null,
       itens: venda.itens.map(item => ({
         ...item,
         produto: item.produto ? {
           ...item.produto,
-          criadoEm: formatarData(item.produto.criadoEm),
-          atualizadoEm: formatarData(item.produto.atualizadoEm)
+          criadoEm: formatarDataParaExibicao(item.produto.criadoEm),
+          atualizadoEm: formatarDataParaExibicao(item.produto.atualizadoEm)
         } : null
       }))
     };
 
     res.json(vendaFormatada);
-  } catch (err) {
-    console.error('Erro ao buscar venda:', err);
+
+  } catch (error) {
+    console.error('Erro ao buscar venda:', error);
     res.status(500).json({ 
       error: 'Erro ao buscar venda',
-      detalhes: err.message
+      detalhes: error.message
     });
   }
 };
 
-// Atualizar venda
 const update = async (req, res) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
-
   try {
-    const { data, status, observacoes, ...rest } = req.body;
+    const id = parseInt(req.params.id);
     
-    console.log('Dados recebidos para atualização:', req.body);
-    console.log('Data recebida:', data);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
+    const { data, status, observacoes, ...outrosDados } = req.body;
     
-    // Validar status se estiver sendo atualizado
+    console.log('Atualizando venda ID:', id);
+    console.log('Dados recebidos:', req.body);
+
+    // Validar status
     if (status && !['Concluida', 'Pendente', 'Cancelada'].includes(status)) {
       return res.status(400).json({ 
         error: 'Status inválido. Use: Concluida, Pendente ou Cancelada' 
       });
     }
 
-    const dataFormatada = data ? converterDataPtBrParaISO(data) : undefined;
-    if (dataFormatada) {
-      console.log('Data formatada para atualização:', dataFormatada);
-    }
-
-    // Buscar venda atual para verificar mudanças de status
+    // Buscar venda atual
     const vendaAtual = await prisma.venda.findUnique({
       where: { id },
       include: { 
@@ -520,25 +564,19 @@ const update = async (req, res) => {
     }
 
     // Preparar dados para atualização
-    const dadosAtualizacao = {
-      ...rest,
-      ...(observacoes !== undefined && { observacoes })
-    };
-
-    // Apenas adicionar campos se foram fornecidos
-    if (data) dadosAtualizacao.data = dataFormatada;
+    const dadosAtualizacao = { ...outrosDados };
+    if (observacoes !== undefined) dadosAtualizacao.observacoes = observacoes;
     if (status) dadosAtualizacao.status = status;
+    if (data) dadosAtualizacao.data = parseDataBrasileira(data);
 
-    console.log('Dados que serão enviados para atualização:', dadosAtualizacao);
-
-    const venda = await prisma.$transaction(async (tx) => {
+    // Atualizar em transação
+    const vendaAtualizada = await prisma.$transaction(async (tx) => {
       // Atualizar venda
-      const vendaAtualizada = await tx.venda.update({
+      const venda = await tx.venda.update({
         where: { id },
         data: dadosAtualizacao,
         include: {
-          cliente: true,
-          usuario: {
+          cliente: {
             select: {
               id: true,
               nome: true
@@ -552,10 +590,10 @@ const update = async (req, res) => {
         }
       });
 
-      // Gerenciar estoque baseado na mudança de status - APENAS para Produtos com estoque não null
+      // Gerenciar estoque se houve mudança de status
       if (vendaAtual.status !== status) {
         if (status === 'Concluida') {
-          // Diminuir estoque APENAS para produtos
+          // Diminuir estoque para produtos
           for (const item of vendaAtual.itens) {
             if (item.produto.tipo === 'Produto') {
               await tx.produto.update({
@@ -569,7 +607,7 @@ const update = async (req, res) => {
             }
           }
         } else if (vendaAtual.status === 'Concluida' && status !== 'Concluida') {
-          // Reverter estoque APENAS para produtos
+          // Reverter estoque para produtos
           for (const item of vendaAtual.itens) {
             if (item.produto.tipo === 'Produto') {
               await tx.produto.update({
@@ -585,32 +623,35 @@ const update = async (req, res) => {
         }
       }
 
-      return vendaAtualizada;
+      return venda;
     });
 
-    // Formatar datas na resposta
-    const vendaFormatada = {
-      ...venda,
-      data: formatarData(venda.data)
+    // Formatar resposta
+    const resposta = {
+      ...vendaAtualizada,
+      data: formatarDataParaExibicao(vendaAtualizada.data)
     };
 
-    res.json(vendaFormatada);
-  } catch (err) {
-    console.error('Erro ao atualizar venda:', err);
+    res.json(resposta);
+
+  } catch (error) {
+    console.error('Erro ao atualizar venda:', error);
     res.status(400).json({ 
       error: 'Erro ao atualizar venda',
-      detalhes: err.message
+      detalhes: error.message
     });
   }
 };
 
-// Deletar venda
 const remove = async (req, res) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
-
   try {
-    // Buscar venda para verificar status e itens
+    const id = parseInt(req.params.id);
+    
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
+    // Buscar venda para verificar status
     const venda = await prisma.venda.findUnique({
       where: { id },
       include: { 
@@ -632,7 +673,7 @@ const remove = async (req, res) => {
     }
 
     await prisma.$transaction(async (tx) => {
-      // Reverter estoque APENAS se a venda estava Concluida e APENAS para produtos
+      // Reverter estoque se a venda estava Concluída
       if (venda.status === 'Concluida') {
         for (const item of venda.itens) {
           if (item.produto.tipo === 'Produto') {
@@ -648,7 +689,7 @@ const remove = async (req, res) => {
         }
       }
 
-      // Deletar venda (os itens serão deletados em cascade)
+      // Deletar venda (itens serão deletados em cascade)
       await tx.venda.delete({ where: { id } });
     });
 
@@ -656,21 +697,24 @@ const remove = async (req, res) => {
       message: 'Venda deletada com sucesso',
       id: id
     });
-  } catch (err) {
-    console.error('Erro ao deletar venda:', err);
+
+  } catch (error) {
+    console.error('Erro ao deletar venda:', error);
     res.status(400).json({ 
       error: 'Erro ao deletar venda',
-      detalhes: err.message
+      detalhes: error.message
     });
   }
 };
 
-// Método para atualizar status da venda
 const updateStatus = async (req, res) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
-
   try {
+    const id = parseInt(req.params.id);
+    
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
     const { status } = req.body;
 
     if (!status || !['Concluida', 'Pendente', 'Cancelada'].includes(status)) {
@@ -680,6 +724,7 @@ const updateStatus = async (req, res) => {
     }
 
     const venda = await prisma.$transaction(async (tx) => {
+      // Buscar venda atual
       const vendaAtual = await tx.venda.findUnique({
         where: { id },
         include: { 
@@ -700,10 +745,10 @@ const updateStatus = async (req, res) => {
         throw new Error('Venda não encontrada');
       }
 
-      // Gerenciar estoque baseado na mudança de status - APENAS para Produtos
+      // Gerenciar estoque baseado na mudança de status
       if (vendaAtual.status !== status) {
         if (status === 'Concluida') {
-          // Diminuir estoque APENAS para produtos
+          // Diminuir estoque para produtos
           for (const item of vendaAtual.itens) {
             if (item.produto.tipo === 'Produto') {
               await tx.produto.update({
@@ -717,7 +762,7 @@ const updateStatus = async (req, res) => {
             }
           }
         } else if (vendaAtual.status === 'Concluida' && status !== 'Concluida') {
-          // Reverter estoque APENAS para produtos
+          // Reverter estoque para produtos
           for (const item of vendaAtual.itens) {
             if (item.produto.tipo === 'Produto') {
               await tx.produto.update({
@@ -759,20 +804,174 @@ const updateStatus = async (req, res) => {
       });
     });
 
-    const vendaFormatada = {
+    const resposta = {
       ...venda,
-      data: formatarData(venda.data)
+      data: formatarDataParaExibicao(venda.data)
     };
 
-    res.json(vendaFormatada);
-  } catch (err) {
-    console.error('Erro ao atualizar status:', err);
+    res.json(resposta);
+
+  } catch (error) {
+    console.error('Erro ao atualizar status:', error);
     res.status(400).json({ 
       error: 'Erro ao atualizar status da venda',
-      detalhes: err.message
+      detalhes: error.message
     });
   }
 };
+
+// Método adicional para dashboard - vendas do dia
+const getVendasDoDia = async (req, res) => {
+  try {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    const amanha = new Date(hoje);
+    amanha.setDate(amanha.getDate() + 1);
+
+    const vendas = await prisma.venda.findMany({
+      where: {
+        data: {
+          gte: hoje,
+          lt: amanha
+        }
+      },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nome: true
+          }
+        },
+        itens: {
+          include: {
+            produto: {
+              select: {
+                id: true,
+                nome: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        data: 'desc'
+      }
+    });
+
+    // Calcular total do dia
+    const totalDia = vendas.reduce((soma, venda) => {
+      return soma + (venda.total || 0);
+    }, 0);
+
+    res.json({
+      data: hoje.toISOString().split('T')[0],
+      totalVendas: vendas.length,
+      totalValor: totalDia,
+      vendas: vendas.map(v => ({
+        ...v,
+        data: formatarDataParaExibicao(v.data)
+      }))
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar vendas do dia:', error);
+    res.status(500).json({ 
+      error: 'Erro ao buscar vendas do dia',
+      detalhes: error.message
+    });
+  }
+};
+
+// Método para estatísticas do dashboard
+const getEstatisticasDashboard = async (req, res) => {
+  try {
+    const hoje = new Date();
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const inicioDia = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    
+    // Executar todas as consultas em paralelo
+    const [
+      totalVendasDia,
+      totalVendasMes,
+      totalClientes,
+      vendasPorDia
+    ] = await Promise.all([
+      // Vendas do dia
+      prisma.venda.aggregate({
+        where: {
+          data: {
+            gte: inicioDia
+          }
+        },
+        _sum: {
+          total: true
+        },
+        _count: {
+          id: true
+        }
+      }),
+      
+      // Vendas do mês
+      prisma.venda.aggregate({
+        where: {
+          data: {
+            gte: inicioMes
+          }
+        },
+        _sum: {
+          total: true
+        }
+      }),
+      
+      // Total de clientes
+      prisma.cliente.count(),
+      
+      // Vendas dos últimos 7 dias para gráfico
+      prisma.venda.groupBy({
+        by: ['data'],
+        where: {
+          data: {
+            gte: new Date(hoje.getTime() - 7 * 24 * 60 * 60 * 1000)
+          }
+        },
+        _sum: {
+          total: true
+        },
+        _count: {
+          id: true
+        },
+        orderBy: {
+          data: 'asc'
+        }
+      })
+    ]);
+
+    res.json({
+      vendasDoDia: {
+        quantidade: totalVendasDia._count.id || 0,
+        valor: totalVendasDia._sum.total || 0
+      },
+      vendasDoMes: {
+        valor: totalVendasMes._sum.total || 0
+      },
+      totalClientes,
+      vendasUltimos7Dias: vendasPorDia.map(item => ({
+        data: formatarDataParaExibicao(item.data),
+        total: item._sum.total || 0,
+        quantidade: item._count.id || 0
+      }))
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar estatísticas:', error);
+    res.status(500).json({ 
+      error: 'Erro ao buscar estatísticas',
+      detalhes: error.message
+    });
+  }
+};
+
 
 module.exports = {
   create,
@@ -780,5 +979,7 @@ module.exports = {
   findOne,
   update,
   remove,
-  updateStatus
+  updateStatus,
+  getVendasDoDia,
+  getEstatisticasDashboard
 };
