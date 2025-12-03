@@ -21,11 +21,15 @@ function formatarData(data) {
   return `${dia}/${mes}/${ano} ${horas}:${minutos}`;
 }
 
-// Função para converter data do formato pt-BR (dd/mm/aaaa) para ISO
+// Função para converter data do formato pt-BR para ISO - CORRIGIDA PARA TIMEZONE
 function converterDataPtBrParaISO(dataString) {
   if (!dataString || dataString.trim() === '') {
-    console.log('Nenhuma data fornecida, usando data atual');
-    return new Date();
+    console.log('Nenhuma data fornecida, usando data atual (BRT)');
+    // Retorna data atual no fuso horário de Brasília
+    const agora = new Date();
+    const offsetBRT = -3 * 60; // Brasília é UTC-3
+    const dataLocal = new Date(agora.getTime() + (agora.getTimezoneOffset() - offsetBRT) * 60000);
+    return dataLocal;
   }
   
   console.log('Convertendo data:', dataString);
@@ -33,11 +37,16 @@ function converterDataPtBrParaISO(dataString) {
   // Remover espaços extras
   dataString = dataString.trim();
   
-  // Verificar se já é um objeto Date ou string ISO
-  if (dataString instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(dataString)) {
+  // Verificar se já é um objeto Date
+  if (dataString instanceof Date) {
+    return dataString;
+  }
+  
+  // Verificar se já está em formato ISO
+  if (/^\d{4}-\d{2}-\d{2}/.test(dataString)) {
     const date = new Date(dataString);
     if (!isNaN(date.getTime())) {
-      console.log('Data já está em formato ISO:', date);
+      console.log('Data já está em formato ISO:', date.toISOString());
       return date;
     }
   }
@@ -48,19 +57,18 @@ function converterDataPtBrParaISO(dataString) {
   
   let dia, mes, ano, horas = '00', minutos = '00';
   
-  if (padraoComHoras.test(dataString)) {
-    const match = dataString.match(padraoComHoras);
-    if (match) {
-      [, dia, mes, ano, horas = '00', minutos = '00'] = match;
-    }
-  } else if (padraoSemHoras.test(dataString)) {
-    const match = dataString.match(padraoSemHoras);
-    if (match) {
-      [, dia, mes, ano] = match;
-    }
+  const matchComHoras = dataString.match(padraoComHoras);
+  const matchSemHoras = dataString.match(padraoSemHoras);
+  
+  if (matchComHoras) {
+    [, dia, mes, ano, horas = '00', minutos = '00'] = matchComHoras;
+  } else if (matchSemHoras) {
+    [, dia, mes, ano] = matchSemHoras;
   } else {
-    console.warn('Formato de data não reconhecido, usando data atual:', dataString);
-    return new Date();
+    console.warn('Formato de data não reconhecido, usando data atual (BRT):', dataString);
+    const agora = new Date();
+    const offsetBRT = -3 * 60;
+    return new Date(agora.getTime() + (agora.getTimezoneOffset() - offsetBRT) * 60000);
   }
   
   // Garantir 2 dígitos
@@ -68,20 +76,43 @@ function converterDataPtBrParaISO(dataString) {
   mes = mes.padStart(2, '0');
   horas = horas.padStart(2, '0');
   
-  // Criar string ISO no formato YYYY-MM-DDTHH:mm:ss
-  const isoString = `${ano}-${mes}-${dia}T${horas}:${minutos}:00`;
-  console.log('String ISO gerada:', isoString);
+  const dataUTC = new Date(Date.UTC(
+    parseInt(ano),
+    parseInt(mes) - 1, // Mês começa em 0
+    parseInt(dia),
+    parseInt(horas),
+    parseInt(minutos),
+    0
+  ));
   
-  const date = new Date(isoString);
+  console.log(`Data convertida (UTC): ${dataUTC.toISOString()}`);
+  console.log(`Data local (BRT): ${dataUTC.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`);
   
-  // Verificar se a data é válida
+  return dataUTC;
+}
+
+// Função para formatar datas no padrão dd/mm/aaaa HH:MM - CORRIGIDA PARA TIMEZONE
+function formatarData(data) {
+  if (!data) return null;
+  
+  const date = new Date(data);
+  
+  // Verifica se a data é válida
   if (isNaN(date.getTime())) {
-    console.error('Data inválida após conversão:', isoString);
-    return new Date();
+    console.error('Data inválida para formatação:', data);
+    return 'Data inválida';
   }
   
-  console.log('Data convertida com sucesso:', date);
-  return date;
+  // Converter para fuso horário de Brasília para exibição
+  const dataBRT = new Date(date.getTime());
+  
+  const dia = dataBRT.getUTCDate().toString().padStart(2, '0'); // Usar getUTCDate
+  const mes = (dataBRT.getUTCMonth() + 1).toString().padStart(2, '0'); // Usar getUTCMonth
+  const ano = dataBRT.getUTCFullYear().toString(); // 4 dígitos
+  const horas = dataBRT.getUTCHours().toString().padStart(2, '0'); // Usar getUTCHours
+  const minutos = dataBRT.getUTCMinutes().toString().padStart(2, '0'); // Usar getUTCMinutes
+  
+  return `${dia}/${mes}/${ano} ${horas}:${minutos}`;
 }
 
 // Função para verificar existência de registros
