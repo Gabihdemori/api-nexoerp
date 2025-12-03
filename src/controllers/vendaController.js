@@ -1,32 +1,87 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Função para formatar datas no padrão dd/mm/aa HH:MM
+// Função para formatar datas no padrão dd/mm/aaaa HH:MM
 function formatarData(data) {
   if (!data) return null;
   const date = new Date(data);
   
+  // Verifica se a data é válida
+  if (isNaN(date.getTime())) {
+    console.error('Data inválida para formatação:', data);
+    return 'Data inválida';
+  }
+  
   const dia = date.getDate().toString().padStart(2, '0');
   const mes = (date.getMonth() + 1).toString().padStart(2, '0');
-  const ano = date.getFullYear().toString().slice(-2);
+  const ano = date.getFullYear().toString(); // 4 dígitos
   const horas = date.getHours().toString().padStart(2, '0');
   const minutos = date.getMinutes().toString().padStart(2, '0');
   
   return `${dia}/${mes}/${ano} ${horas}:${minutos}`;
 }
 
-// Função para converter data do formato pt-BR para ISO
+// Função para converter data do formato pt-BR (dd/mm/aaaa) para ISO
 function converterDataPtBrParaISO(dataString) {
-  if (!dataString) return new Date(); // Retorna data atual se não for fornecida
-  
-  if (/\d{2}\/\d{2}\/\d{4}/.test(dataString)) {
-    const [dia, mes, resto] = dataString.split('/');
-    const [ano, hora] = resto.split(' ');
-    const horaFormatada = hora || "00:00";
-    return new Date(`${ano}-${mes}-${dia}T${horaFormatada}`);
-  } else {
-    return new Date(dataString);
+  if (!dataString || dataString.trim() === '') {
+    console.log('Nenhuma data fornecida, usando data atual');
+    return new Date();
   }
+  
+  console.log('Convertendo data:', dataString);
+  
+  // Remover espaços extras
+  dataString = dataString.trim();
+  
+  // Verificar se já é um objeto Date ou string ISO
+  if (dataString instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(dataString)) {
+    const date = new Date(dataString);
+    if (!isNaN(date.getTime())) {
+      console.log('Data já está em formato ISO:', date);
+      return date;
+    }
+  }
+  
+  // Padrão para dd/mm/aaaa ou dd/mm/aaaa HH:mm
+  const padraoComHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/;
+  const padraoSemHoras = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+  
+  let dia, mes, ano, horas = '00', minutos = '00';
+  
+  if (padraoComHoras.test(dataString)) {
+    const match = dataString.match(padraoComHoras);
+    if (match) {
+      [, dia, mes, ano, horas = '00', minutos = '00'] = match;
+    }
+  } else if (padraoSemHoras.test(dataString)) {
+    const match = dataString.match(padraoSemHoras);
+    if (match) {
+      [, dia, mes, ano] = match;
+    }
+  } else {
+    console.warn('Formato de data não reconhecido, usando data atual:', dataString);
+    return new Date();
+  }
+  
+  // Garantir 2 dígitos
+  dia = dia.padStart(2, '0');
+  mes = mes.padStart(2, '0');
+  horas = horas.padStart(2, '0');
+  
+  // Criar string ISO no formato YYYY-MM-DDTHH:mm:ss
+  const isoString = `${ano}-${mes}-${dia}T${horas}:${minutos}:00`;
+  console.log('String ISO gerada:', isoString);
+  
+  const date = new Date(isoString);
+  
+  // Verificar se a data é válida
+  if (isNaN(date.getTime())) {
+    console.error('Data inválida após conversão:', isoString);
+    return new Date();
+  }
+  
+  console.log('Data convertida com sucesso:', date);
+  return date;
 }
 
 // Função para verificar existência de registros
@@ -113,6 +168,7 @@ const create = async (req, res) => {
     }
 
     const dataFormatada = converterDataPtBrParaISO(data);
+    console.log('Data formatada para salvar no banco:', dataFormatada);
 
     // Calcular total se não fornecido
     let totalCalculado = total;
@@ -163,7 +219,7 @@ const create = async (req, res) => {
                   id: true,
                   nome: true,
                   preco: true,
-                  tipo: true // Incluímos o tipo para saber se é Produto ou Serviço
+                  tipo: true
                 }
               }
             }
@@ -254,8 +310,16 @@ const findAll = async (req, res) => {
     
     if (dataInicio || dataFim) {
       where.data = {};
-      if (dataInicio) where.data.gte = new Date(dataInicio);
-      if (dataFim) where.data.lte = new Date(dataFim);
+      if (dataInicio) {
+        const dataInicioConvertida = converterDataPtBrParaISO(dataInicio);
+        where.data.gte = dataInicioConvertida;
+      }
+      if (dataFim) {
+        const dataFimConvertida = converterDataPtBrParaISO(dataFim);
+        // Ajusta para o final do dia
+        dataFimConvertida.setHours(23, 59, 59, 999);
+        where.data.lte = dataFimConvertida;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -389,7 +453,7 @@ const update = async (req, res) => {
     const { data, status, observacoes, ...rest } = req.body;
     
     console.log('Dados recebidos para atualização:', req.body);
-    console.log('Observações extraídas:', observacoes);
+    console.log('Data recebida:', data);
     
     // Validar status se estiver sendo atualizado
     if (status && !['Concluida', 'Pendente', 'Cancelada'].includes(status)) {
@@ -399,6 +463,9 @@ const update = async (req, res) => {
     }
 
     const dataFormatada = data ? converterDataPtBrParaISO(data) : undefined;
+    if (dataFormatada) {
+      console.log('Data formatada para atualização:', dataFormatada);
+    }
 
     // Buscar venda atual para verificar mudanças de status
     const vendaAtual = await prisma.venda.findUnique({
@@ -421,7 +488,7 @@ const update = async (req, res) => {
       return res.status(404).json({ error: 'Venda não encontrada' });
     }
 
-    // Incluir observacoes no objeto de atualização
+    // Preparar dados para atualização
     const dadosAtualizacao = {
       ...rest,
       ...(observacoes !== undefined && { observacoes })
